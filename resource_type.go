@@ -18,9 +18,6 @@ func unmarshal(data []byte, v interface{}) error {
 	return d.Decode(v)
 }
 
-// AllowNonScimKeys ResourceAttributes will have non scim complaint attributes to support custom attributes from idp
-var AllowNonScimKeys = false
-
 // ResourceType specifies the metadata about a resource type.
 type ResourceType struct {
 	// ID is the resource type's server unique id. This is often the same value as the "name" attribute.
@@ -39,6 +36,9 @@ type ResourceType struct {
 
 	// Handler is the set of callback method that connect the SCIM server with a provider of the resource type.
 	Handler ResourceHandler
+
+	// AllowNonScimKeys is a flag to allow non scim complaint attributes to be part of the resource type
+	AllowNonScimKeys bool
 }
 
 func (t ResourceType) getRaw() map[string]interface{} {
@@ -117,7 +117,7 @@ func (t ResourceType) validate(raw []byte) (ResourceAttributes, *errors.ScimErro
 		attributes[extension.Schema.ID] = extensionAttributes
 	}
 	// add all the keys from the original map that are not in the schema
-	if AllowNonScimKeys {
+	if t.AllowNonScimKeys {
 		for k, v := range m {
 			if _, ok := attributes[k]; !ok {
 				attributes[k] = v
