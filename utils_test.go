@@ -96,3 +96,20 @@ func getLen(x interface{}) (ok bool, length int) {
 	}()
 	return true, v.Len()
 }
+
+func assertEqualMaps(t *testing.T, map1, map2 map[string]interface{}) {
+	if len(map1) != len(map2) {
+		t.Errorf("Maps have different lengths: %d != %d", len(map1), len(map2))
+	}
+
+	for key, value1 := range map1 {
+		value2, ok := map2[key]
+		if !ok {
+			t.Errorf("Key %s not found in map2", key)
+		}
+
+		if !reflect.DeepEqual(value1, value2) {
+			t.Errorf("Values for key %s are different: %v != %v", key, value1, value2)
+		}
+	}
+}

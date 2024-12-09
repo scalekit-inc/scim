@@ -36,6 +36,9 @@ type ResourceType struct {
 
 	// Handler is the set of callback method that connect the SCIM server with a provider of the resource type.
 	Handler ResourceHandler
+
+	// AllowNonScimKeys is a flag to allow non scim complaint attributes to be part of the resource type
+	AllowNonScimKeys bool
 }
 
 func (t ResourceType) getRaw() map[string]interface{} {
@@ -112,6 +115,14 @@ func (t ResourceType) validate(raw []byte) (ResourceAttributes, *errors.ScimErro
 		}
 
 		attributes[extension.Schema.ID] = extensionAttributes
+	}
+	// add all the keys from the original map that are not in the schema
+	if t.AllowNonScimKeys {
+		for k, v := range m {
+			if _, ok := attributes[k]; !ok {
+				attributes[k] = v
+			}
+		}
 	}
 
 	return attributes, nil
