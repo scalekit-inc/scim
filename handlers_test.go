@@ -964,12 +964,13 @@ func newTestServer(t *testing.T) Server {
 			ServiceProviderConfig: &ServiceProviderConfig{},
 			ResourceTypes: []ResourceType{
 				{
-					ID:          optional.NewString("User"),
-					Name:        "User",
-					Endpoint:    "/Users",
-					Description: optional.NewString("User Account"),
-					Schema:      userSchema,
-					Handler:     newTestResourceHandler(),
+					ID:               optional.NewString("User"),
+					Name:             "User",
+					Endpoint:         "/Users",
+					Description:      optional.NewString("User Account"),
+					Schema:           userSchema,
+					Handler:          newTestResourceHandler(),
+					AllowNonScimKeys: true,
 				},
 				{
 					ID:          optional.NewString("EnterpriseUser"),
@@ -997,4 +998,92 @@ func newTestServer(t *testing.T) Server {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestServerResourceHandlerWithCustomAttributes(t *testing.T) {
+	tests := []struct {
+		name                    string
+		target                  string
+		body                    io.Reader
+		expectedUserName        string
+		expectedExternalID      interface{}
+		ExpectedCustomAttribute interface{}
+	}{
+		{
+			name:                    "Users post With String Custom attribute",
+			target:                  "/Users",
+			body:                    strings.NewReader(`{"id": "other", "userName": "test1", "externalId": "external_test1","custom_attribute":"test"}`),
+			expectedUserName:        "test1",
+			expectedExternalID:      "external_test1",
+			ExpectedCustomAttribute: "test",
+		},
+		{
+			name:                    "Users post With boolean Custom attribute",
+			target:                  "/Users",
+			body:                    strings.NewReader(`{"id": "other", "userName": "test1", "externalId": "external_test1","custom_attribute": true}`),
+			expectedUserName:        "test1",
+			expectedExternalID:      "external_test1",
+			ExpectedCustomAttribute: true,
+		},
+		{
+			name:                    "Users post With Object Custom attribute",
+			target:                  "/Users",
+			body:                    strings.NewReader(`{"id": "other", "userName": "test1", "externalId": "external_test1","custom_attribute":{"test_key":"test_value"}}`),
+			expectedUserName:        "test1",
+			expectedExternalID:      "external_test1",
+			ExpectedCustomAttribute: map[string]interface{}{"test_key": "test_value"},
+		},
+		{
+			name:                    "Users post With number Custom attribute",
+			target:                  "/Users",
+			body:                    strings.NewReader(`{"id": "other", "userName": "test1", "externalId": "external_test1","custom_attribute": 1}`),
+			expectedUserName:        "test1",
+			expectedExternalID:      "external_test1",
+			ExpectedCustomAttribute: float64(1),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, test.target, test.body)
+			rr := httptest.NewRecorder()
+			newTestServer(t).ServeHTTP(rr, req)
+
+			assertEqualStatusCode(t, http.StatusCreated, rr.Code)
+
+			assertEqual(t, "application/scim+json", rr.Header().Get("Content-Type"))
+
+			var resource map[string]interface{}
+			assertUnmarshalNoError(t, json.Unmarshal(rr.Body.Bytes(), &resource))
+
+			assertEqual(t, test.expectedUserName, resource["userName"])
+			assertEqual(t, test.expectedExternalID, resource["externalId"])
+
+			meta, ok := resource["meta"].(map[string]interface{})
+			assertTypeOk(t, ok, "object")
+
+			switch v := test.ExpectedCustomAttribute.(type) {
+			case string:
+				assertEqual(t, v, resource["custom_attribute"])
+			case map[string]interface{}:
+				obj, ok := resource["custom_attribute"].(map[string]interface{})
+				assertTypeOk(t, ok, "object")
+				assertEqualMaps(t, v, obj)
+			case bool:
+				assertEqual(t, v, resource["custom_attribute"])
+			case float64:
+				assertEqual(t, v, resource["custom_attribute"])
+			default:
+				t.Errorf("Unexpected type %T", v)
+			}
+
+			assertEqual(t, "User", meta["resourceType"])
+			assertNotNil(t, meta["created"], "created")
+			assertNotNil(t, meta["lastModified"], "last modified")
+			assertEqual(t, fmt.Sprintf("Users/%s", resource["id"]), meta["location"])
+			assertEqual(t, fmt.Sprintf("v%s", resource["id"]), meta["version"])
+			// ETag and version needs to be the same.
+			assertEqual(t, rr.Header().Get("Etag"), meta["version"])
+		})
+	}
 }
