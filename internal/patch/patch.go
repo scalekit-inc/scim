@@ -92,6 +92,27 @@ func NewValidatorWithConfig(patchReq []byte, s schema.Schema, config ValidatorCo
 			if !config.AllowNonScimKeys {
 				return OperationValidator{}, err
 			}
+			// Only swallow the error when the top-level attribute name is not
+			// defined in any of the reference schemas (truly unknown/custom key).
+			// If the top-level attribute IS known, propagate the error so that
+			// invalid sub-attribute paths like "name.invalid" are still rejected.
+			p := validator.Path()
+			attrName := p.AttributePath.AttributeName
+			knownInMainSchema := false
+			if _, ok := s.Attributes.ContainsAttribute(attrName); ok {
+				knownInMainSchema = true
+			}
+			if !knownInMainSchema {
+				for _, ext := range extensions {
+					if _, ok := ext.Attributes.ContainsAttribute(attrName); ok {
+						knownInMainSchema = true
+						break
+					}
+				}
+			}
+			if knownInMainSchema {
+				return OperationValidator{}, err
+			}
 		}
 		p := validator.Path()
 		path = &p
@@ -160,7 +181,8 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 		}
 	}
 	if refAttr == nil {
-		if v.allowNonScimKeys {
+		// Only allow unknown top-level attributes (no sub-attribute path).
+		if v.allowNonScimKeys && attrPath.SubAttributeName() == "" {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("could not find attribute %s", v.Path)
@@ -168,9 +190,6 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 	if subAttrName := attrPath.SubAttributeName(); subAttrName != "" {
 		refSubAttr, err := v.getRefSubAttribute(refAttr, subAttrName)
 		if err != nil {
-			if v.allowNonScimKeys {
-				return nil, nil
-			}
 			return nil, err
 		}
 		refAttr = refSubAttr

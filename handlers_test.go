@@ -1087,3 +1087,73 @@ func TestServerResourceHandlerWithCustomAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestServerPatchWithCustomAttributes(t *testing.T) {
+	tests := []struct {
+		name          string
+		target        string
+		body          string
+		expectedCode  int
+		expectedKey   string
+		expectedValue interface{}
+	}{
+		{
+			name:   "PATCH replace with string custom attribute",
+			target: "/Users/0001",
+			body: `{
+				"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				"Operations": [{"op": "replace", "path": "custom_attribute", "value": "custom_value"}]
+			}`,
+			expectedCode:  http.StatusOK,
+			expectedKey:   "custom_attribute",
+			expectedValue: "custom_value",
+		},
+		{
+			name:   "PATCH add with boolean custom attribute",
+			target: "/Users/0001",
+			body: `{
+				"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				"Operations": [{"op": "add", "path": "custom_flag", "value": true}]
+			}`,
+			expectedCode:  http.StatusOK,
+			expectedKey:   "custom_flag",
+			expectedValue: true,
+		},
+		{
+			name:   "PATCH add with empty path containing custom attribute",
+			target: "/Users/0001",
+			body: `{
+				"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				"Operations": [{"op": "add", "value": {"userName": "updated", "custom_attribute": "custom_value"}}]
+			}`,
+			expectedCode:  http.StatusOK,
+			expectedKey:   "custom_attribute",
+			expectedValue: "custom_value",
+		},
+		{
+			name:   "PATCH remove custom attribute",
+			target: "/Users/0001",
+			body: `{
+				"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				"Operations": [{"op": "remove", "path": "custom_attribute"}]
+			}`,
+			expectedCode: http.StatusNoContent,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, test.target, strings.NewReader(test.body))
+			rr := httptest.NewRecorder()
+			newTestServer(t).ServeHTTP(rr, req)
+
+			assertEqualStatusCode(t, test.expectedCode, rr.Code)
+
+			if test.expectedKey != "" && test.expectedValue != nil {
+				var resource map[string]interface{}
+				assertUnmarshalNoError(t, json.Unmarshal(rr.Body.Bytes(), &resource))
+				assertEqual(t, test.expectedValue, resource[test.expectedKey])
+			}
+		})
+	}
+}

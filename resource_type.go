@@ -156,11 +156,15 @@ func (t ResourceType) validatePatch(r *http.Request) ([]PatchOperation, *errors.
 	}
 
 	// Evaluation continues until all operations are successfully applied or until an error condition is encountered.
+	config := patch.ValidatorConfig{
+		AllowNonScimKeys: t.AllowNonScimKeys,
+	}
 	var operations []PatchOperation
 	for _, v := range req.Operations {
-		validator, err := patch.NewValidator(
+		validator, err := patch.NewValidatorWithConfig(
 			v,
 			t.schemaWithCommon(),
+			config,
 			t.getSchemaExtensions()...,
 		)
 		if err != nil {
