@@ -24,19 +24,31 @@ const (
 	OperationReplace Op = "replace"
 )
 
+// ValidatorConfig holds optional configuration for NewValidatorWithConfig.
+type ValidatorConfig struct {
+	AllowNonScimKeys bool
+}
+
 // OperationValidator represents a validator to validate PATCH requests.
 type OperationValidator struct {
 	Op    Op
 	Path  *filter.Path
 	value interface{}
 
-	schema  schema.Schema
-	schemas map[string]schema.Schema
+	allowNonScimKeys bool
+	schema           schema.Schema
+	schemas          map[string]schema.Schema
 }
 
 // NewValidator creates an OperationValidator based on the given JSON string and reference schemas.
 // Returns an error if patchReq is not valid.
 func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema) (OperationValidator, error) {
+	return NewValidatorWithConfig(patchReq, s, ValidatorConfig{}, extensions...)
+}
+
+// NewValidatorWithConfig creates an OperationValidator with the given config.
+// When config.AllowNonScimKeys is true, unknown attribute paths will not cause an error.
+func NewValidatorWithConfig(patchReq []byte, s schema.Schema, config ValidatorConfig, extensions ...schema.Schema) (OperationValidator, error) {
 	var operation struct {
 		Op    string
 		Path  string
@@ -77,7 +89,9 @@ func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema)
 			return OperationValidator{}, err
 		}
 		if err := validator.Validate(); err != nil {
-			return OperationValidator{}, err
+			if !config.AllowNonScimKeys {
+				return OperationValidator{}, err
+			}
 		}
 		p := validator.Path()
 		path = &p
@@ -94,8 +108,9 @@ func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema)
 		Path:  path,
 		value: operation.Value,
 
-		schema:  s,
-		schemas: schemas,
+		allowNonScimKeys: config.AllowNonScimKeys,
+		schema:           s,
+		schemas:          schemas,
 	}, nil
 }
 

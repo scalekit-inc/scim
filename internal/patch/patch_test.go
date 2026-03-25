@@ -165,6 +165,31 @@ func TestOperationValidator_getRefAttribute(t *testing.T) {
 	}
 }
 
+func TestNewValidator_AllowNonScimKeys(t *testing.T) {
+	op, _ := json.Marshal(map[string]interface{}{
+		"op":    "replace",
+		"path":  "custom_attribute",
+		"value": "custom_value",
+	})
+
+	t.Run("Reject unknown path by default", func(t *testing.T) {
+		_, err := NewValidator(op, patchSchema)
+		if err == nil {
+			t.Error("expected error for unknown attribute, got none")
+		}
+	})
+
+	t.Run("Accept unknown path when AllowNonScimKeys is true", func(t *testing.T) {
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if validator.Path == nil {
+			t.Fatal("expected path to be set")
+		}
+	})
+}
+
 func TestOperationValidator_getRefSubAttribute(t *testing.T) {
 	for _, test := range []struct {
 		attributeName    string
