@@ -141,6 +141,9 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 		// It can also be an extension if it has a uri prefix.
 		var ok bool
 		if refSchema, ok = v.schemas[uri]; !ok {
+			if v.allowNonScimKeys {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("invalid uri prefix: %s", uri)
 		}
 	}
@@ -157,11 +160,17 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 		}
 	}
 	if refAttr == nil {
+		if v.allowNonScimKeys {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("could not find attribute %s", v.Path)
 	}
 	if subAttrName := attrPath.SubAttributeName(); subAttrName != "" {
 		refSubAttr, err := v.getRefSubAttribute(refAttr, subAttrName)
 		if err != nil {
+			if v.allowNonScimKeys {
+				return nil, nil
+			}
 			return nil, err
 		}
 		refAttr = refSubAttr
@@ -200,20 +209,25 @@ func (v OperationValidator) validateEmptyPath() (interface{}, error) {
 	for p, value := range attributes {
 		path, err := filter.ParsePath([]byte(p))
 		if err != nil {
+			if v.allowNonScimKeys {
+				rootValue[p] = value
+				continue
+			}
 			return nil, fmt.Errorf("invalid attribute path: %s", p)
 		}
 		validator := OperationValidator{
-			Op:      v.Op,
-			Path:    &path,
-			value:   value,
-			schema:  v.schema,
-			schemas: v.schemas,
+			Op:               v.Op,
+			Path:             &path,
+			value:            value,
+			schema:           v.schema,
+			schemas:          v.schemas,
+			allowNonScimKeys: v.allowNonScimKeys,
 		}
-		v, err := validator.Validate()
+		validated, err := validator.Validate()
 		if err != nil {
 			return nil, err
 		}
-		rootValue[p] = v
+		rootValue[p] = validated
 	}
 	return rootValue, nil
 }
