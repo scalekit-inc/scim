@@ -24,19 +24,31 @@ const (
 	OperationReplace Op = "replace"
 )
 
+// ValidatorConfig holds optional configuration for NewValidatorWithConfig.
+type ValidatorConfig struct {
+	AllowNonScimKeys bool
+}
+
 // OperationValidator represents a validator to validate PATCH requests.
 type OperationValidator struct {
 	Op    Op
 	Path  *filter.Path
 	value interface{}
 
-	schema  schema.Schema
-	schemas map[string]schema.Schema
+	allowNonScimKeys bool
+	schema           schema.Schema
+	schemas          map[string]schema.Schema
 }
 
 // NewValidator creates an OperationValidator based on the given JSON string and reference schemas.
 // Returns an error if patchReq is not valid.
 func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema) (OperationValidator, error) {
+	return NewValidatorWithConfig(patchReq, s, ValidatorConfig{}, extensions...)
+}
+
+// NewValidatorWithConfig creates an OperationValidator with the given config.
+// When config.AllowNonScimKeys is true, unknown attribute paths will not cause an error.
+func NewValidatorWithConfig(patchReq []byte, s schema.Schema, config ValidatorConfig, extensions ...schema.Schema) (OperationValidator, error) {
 	var operation struct {
 		Op    string
 		Path  string
@@ -77,7 +89,30 @@ func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema)
 			return OperationValidator{}, err
 		}
 		if err := validator.Validate(); err != nil {
-			return OperationValidator{}, err
+			if !config.AllowNonScimKeys {
+				return OperationValidator{}, err
+			}
+			// Only swallow the error when the top-level attribute name is not
+			// defined in any of the reference schemas (truly unknown/custom key).
+			// If the top-level attribute IS known, propagate the error so that
+			// invalid sub-attribute paths like "name.invalid" are still rejected.
+			p := validator.Path()
+			attrName := p.AttributePath.AttributeName
+			knownInMainSchema := false
+			if _, ok := s.Attributes.ContainsAttribute(attrName); ok {
+				knownInMainSchema = true
+			}
+			if !knownInMainSchema {
+				for _, ext := range extensions {
+					if _, ok := ext.Attributes.ContainsAttribute(attrName); ok {
+						knownInMainSchema = true
+						break
+					}
+				}
+			}
+			if knownInMainSchema {
+				return OperationValidator{}, err
+			}
 		}
 		p := validator.Path()
 		path = &p
@@ -94,8 +129,9 @@ func NewValidator(patchReq []byte, s schema.Schema, extensions ...schema.Schema)
 		Path:  path,
 		value: operation.Value,
 
-		schema:  s,
-		schemas: schemas,
+		allowNonScimKeys: config.AllowNonScimKeys,
+		schema:           s,
+		schemas:          schemas,
 	}, nil
 }
 
@@ -126,6 +162,9 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 		// It can also be an extension if it has a uri prefix.
 		var ok bool
 		if refSchema, ok = v.schemas[uri]; !ok {
+			if v.allowNonScimKeys {
+				return nil, nil
+			}
 			return nil, fmt.Errorf("invalid uri prefix: %s", uri)
 		}
 	}
@@ -142,6 +181,10 @@ func (v OperationValidator) getRefAttribute(attrPath filter.AttributePath) (*sch
 		}
 	}
 	if refAttr == nil {
+		// Only allow unknown top-level attributes (no sub-attribute path).
+		if v.allowNonScimKeys && attrPath.SubAttributeName() == "" {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("could not find attribute %s", v.Path)
 	}
 	if subAttrName := attrPath.SubAttributeName(); subAttrName != "" {
@@ -185,20 +228,25 @@ func (v OperationValidator) validateEmptyPath() (interface{}, error) {
 	for p, value := range attributes {
 		path, err := filter.ParsePath([]byte(p))
 		if err != nil {
+			if v.allowNonScimKeys {
+				rootValue[p] = value
+				continue
+			}
 			return nil, fmt.Errorf("invalid attribute path: %s", p)
 		}
 		validator := OperationValidator{
-			Op:      v.Op,
-			Path:    &path,
-			value:   value,
-			schema:  v.schema,
-			schemas: v.schemas,
+			Op:               v.Op,
+			Path:             &path,
+			value:            value,
+			schema:           v.schema,
+			schemas:          v.schemas,
+			allowNonScimKeys: v.allowNonScimKeys,
 		}
-		v, err := validator.Validate()
+		validated, err := validator.Validate()
 		if err != nil {
 			return nil, err
 		}
-		rootValue[p] = v
+		rootValue[p] = validated
 	}
 	return rootValue, nil
 }

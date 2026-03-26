@@ -165,6 +165,165 @@ func TestOperationValidator_getRefAttribute(t *testing.T) {
 	}
 }
 
+func TestNewValidator_AllowNonScimKeys(t *testing.T) {
+	op, _ := json.Marshal(map[string]interface{}{
+		"op":    "replace",
+		"path":  "custom_attribute",
+		"value": "custom_value",
+	})
+
+	t.Run("Reject unknown path by default", func(t *testing.T) {
+		_, err := NewValidator(op, patchSchema)
+		if err == nil {
+			t.Error("expected error for unknown attribute, got none")
+		}
+	})
+
+	t.Run("Accept unknown path when AllowNonScimKeys is true", func(t *testing.T) {
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if validator.Path == nil {
+			t.Fatal("expected path to be set")
+		}
+	})
+}
+
+func TestOperationValidator_Validate_AllowNonScimKeys(t *testing.T) {
+	t.Run("Add with explicit path", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "add", "path": "custom_attribute", "value": "custom_value",
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if value != "custom_value" {
+			t.Errorf("expected custom_value, got %v", value)
+		}
+	})
+
+	t.Run("Replace with explicit path", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "replace", "path": "custom_attribute", "value": "new_value",
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if value != "new_value" {
+			t.Errorf("expected new_value, got %v", value)
+		}
+	})
+
+	t.Run("Remove with explicit path", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "remove", "path": "custom_attribute",
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if value != nil {
+			t.Errorf("expected nil, got %v", value)
+		}
+	})
+
+	t.Run("Add with empty path containing non-SCIM keys", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "add",
+			"value": map[string]interface{}{
+				"attr1":            "known_value",
+				"custom_attribute": "custom_value",
+			},
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", value)
+		}
+		if m["attr1"] != "known_value" {
+			t.Errorf("expected known_value, got %v", m["attr1"])
+		}
+		if m["custom_attribute"] != "custom_value" {
+			t.Errorf("expected custom_value, got %v", m["custom_attribute"])
+		}
+	})
+
+	t.Run("Add with boolean custom attribute", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "add", "path": "custom_flag", "value": true,
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if value != true {
+			t.Errorf("expected true, got %v", value)
+		}
+	})
+
+	t.Run("Add with object custom attribute", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "add", "path": "custom_object",
+			"value": map[string]interface{}{"key": "value"},
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value, err := validator.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", value)
+		}
+		if m["key"] != "value" {
+			t.Errorf("expected value, got %v", m["key"])
+		}
+	})
+
+	t.Run("Known attributes still validated when AllowNonScimKeys is true", func(t *testing.T) {
+		op, _ := json.Marshal(map[string]interface{}{
+			"op": "add", "path": "attr2", "value": "not_an_integer",
+		})
+		validator, err := NewValidatorWithConfig(op, patchSchema, ValidatorConfig{AllowNonScimKeys: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = validator.Validate()
+		if err == nil {
+			t.Error("expected validation error for invalid integer value, got none")
+		}
+	})
+}
+
 func TestOperationValidator_getRefSubAttribute(t *testing.T) {
 	for _, test := range []struct {
 		attributeName    string

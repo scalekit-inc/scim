@@ -23,6 +23,10 @@ func (v OperationValidator) validateRemove() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Non-SCIM key: pass through without validation.
+	if refAttr == nil {
+		return v.value, nil
+	}
 	if v.Path.ValueExpression != nil {
 		if err := filter.NewFilterValidator(v.Path.ValueExpression, schema.Schema{
 			Attributes: filter.MultiValuedFilterAttributes(*refAttr),

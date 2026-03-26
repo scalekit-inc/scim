@@ -249,6 +249,45 @@ func TestValidationInvalid(t *testing.T) {
 	}
 }
 
+func TestSchema_ValidatePatchOperationAllowNonScimKeys(t *testing.T) {
+	s := Schema{
+		ID:   "test:Schema",
+		Name: optional.NewString("Test"),
+		Attributes: []CoreAttribute{
+			SimpleCoreAttribute(SimpleStringParams(StringParams{
+				Name: "knownAttr",
+			})),
+		},
+	}
+
+	t.Run("Rejects unknown attr by default", func(t *testing.T) {
+		err := s.ValidatePatchOperationValue("add", map[string]interface{}{
+			"unknown_attr": "value",
+		})
+		if err == nil {
+			t.Error("expected error for unknown attribute")
+		}
+	})
+
+	t.Run("Accepts unknown attr with AllowNonScimKeys", func(t *testing.T) {
+		err := s.ValidatePatchOperation("add", map[string]interface{}{
+			"unknown_attr": "value",
+		}, false, true)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Still validates known attrs with AllowNonScimKeys", func(t *testing.T) {
+		err := s.ValidatePatchOperation("add", map[string]interface{}{
+			"knownAttr": "valid_value",
+		}, false, true)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
 func normalizeJSON(rawJSON []byte) (string, error) {
 	dataMap := map[string]interface{}{}
 

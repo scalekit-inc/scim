@@ -77,7 +77,8 @@ func (s Schema) ValidateMutability(resource interface{}) (map[string]interface{}
 }
 
 // ValidatePatchOperation validates an individual operation and its related value.
-func (s Schema) ValidatePatchOperation(operation string, operationValue map[string]interface{}, isExtension bool) *errors.ScimError {
+func (s Schema) ValidatePatchOperation(operation string, operationValue map[string]interface{}, isExtension bool, allowNonScimKeys ...bool) *errors.ScimError {
+	allowNonScim := len(allowNonScimKeys) > 0 && allowNonScimKeys[0]
 	for k, v := range operationValue {
 		var attr *CoreAttribute
 		var scimErr *errors.ScimError
@@ -95,7 +96,13 @@ func (s Schema) ValidatePatchOperation(operation string, operationValue map[stri
 
 		// Attribute does not exist in the schema, thus it is an invalid request.
 		// Immutable attrs can only be added and Readonly attrs cannot be patched
-		if attr == nil || cannotBePatched(operation, *attr) {
+		if attr == nil {
+			if allowNonScim {
+				continue
+			}
+			return &errors.ScimErrorInvalidValue
+		}
+		if cannotBePatched(operation, *attr) {
 			return &errors.ScimErrorInvalidValue
 		}
 
